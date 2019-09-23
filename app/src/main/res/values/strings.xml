@@ -1,0 +1,37 @@
+<resources>
+    <string name="app_name">NRFBluetoothSampleApp</string>
+    <string name="title_activity_bluetooth">BluetoothActivity</string>
+
+    <string-array name="dfu_file_type">
+        <item>Distribution packet (ZIP)</item>
+        <item>Soft Device</item>
+        <item>Bootloader</item>
+        <item>Application</item>
+    </string-array>
+    <string name="dfu_section_application_header">APPLICATION</string>
+    <string name="dfu_file_name_label">File name:</string>
+    <string name="dfu_file_type_label">Type:</string>
+    <string name="dfu_file_size_label">Size:</string>
+    <string name="dfu_file_scope_label">Scope:</string>
+    <string name="dfu_file_status_label">Status:</string>
+    <string name="dfu_file_size_text">%d bytes</string>
+    <string name="dfu_file_status_ok">OK</string>
+    <string name="dfu_file_status_ok_with_init">OK (Init file selected)</string>
+    <string name="dfu_file_status_no_file">File not loaded</string>
+    <string name="dfu_file_status_invalid">Invalid file</string>
+    <string name="dfu_file_status_error">Reading file failed</string>
+    <string name="dfu_file_status_invalid_message">Please, select valid HEX file</string>
+    <string name="dfu_file_info">Info</string>
+    <string name="dfu_file_init_title">Init packet</string>
+    <string name="dfu_file_init_message">Do you want to select the Init packet file?\n
+		The Init packet file (*.dat) should contain the device type and revision, application version, list of supported Soft Devices and the firmware CRC
+		in binary format or, with old versions of the DFU bootloader, only the CRC (CRC-CCITT-16).
+		With the new version of the bootloader the extended Init packet is <b>required</b>.</string>
+    <string name="dfu_file_scope_title">Select scope</string>
+    <string-array name="dfu_file_scope">
+        <item>All</item>
+        <item>System components only</item>
+        <item>Application only</item>
+    </string-array>
+
+</resources>
