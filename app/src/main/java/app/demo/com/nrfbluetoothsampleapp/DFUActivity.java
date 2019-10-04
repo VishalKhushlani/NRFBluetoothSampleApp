@@ -4,22 +4,20 @@ import android.app.Activity;
 import android.app.ActivityManager;
 import android.app.AlertDialog;
 import android.app.NotificationManager;
-import android.bluetooth.BluetoothDevice;
+import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.CursorLoader;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.database.Cursor;
 import android.net.Uri;
+import android.os.AsyncTask;
 import android.os.Build;
+import android.os.Environment;
 import android.os.Handler;
 import android.preference.PreferenceManager;
 
-import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.loader.app.LoaderManager;
-import androidx.loader.content.Loader;
 
 import android.os.Bundle;
 import android.provider.MediaStore;
@@ -32,6 +30,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.File;
+import java.io.IOException;
 
 import no.nordicsemi.android.dfu.DfuProgressListener;
 import no.nordicsemi.android.dfu.DfuProgressListenerAdapter;
@@ -183,7 +182,7 @@ public class DFUActivity extends AppCompatActivity {
         action_select_file.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                openFileChooser();
+                fileDownload();
             }
         });
     }
@@ -319,135 +318,8 @@ public class DFUActivity extends AppCompatActivity {
         return false;
     }
 
-    private void openFileChooser() {
-        final Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
-        intent.setType(mFileTypeTmp == DFUService.TYPE_AUTO ? DFUService.MIME_TYPE_ZIP : DFUService.MIME_TYPE_OCTET_STREAM);
-        intent.addCategory(Intent.CATEGORY_OPENABLE);
-        if (intent.resolveActivity(getPackageManager()) != null) {
-            // file browser has been found on the device
-            startActivityForResult(intent, SELECT_FILE_REQ);
-        }
-    }
-
-    @Override
-    protected void onActivityResult(final int requestCode, final int resultCode, final Intent data) {
-        if (resultCode != RESULT_OK)
-            return;
-
-        switch (requestCode) {
-            case SELECT_FILE_REQ: {
-                // clear previous data
-                mFileType = mFileTypeTmp;
-                mFilePath = null;
-                mFileStreamUri = null;
-
-                // and read new one
-                final Uri uri = data.getData();
-                /*
-                 * The URI returned from application may be in 'file' or 'content' schema. 'File' schema allows us to create a File object and read details from if
-                 * directly. Data from 'Content' schema must be read by Content Provider. To do that we are using a Loader.
-                 */
-                if (uri.getScheme().equals("file")) {
-                    // the direct path to the file has been returned
-                    final String path = uri.getPath();
-                    final File file = new File(path);
-                    mFilePath = path;
-
-                    updateFileInfo(file.getName(), file.length(), mFileType);
-                } else if (uri.getScheme().equals("content")) {
-                    // an Uri has been returned
-                    mFileStreamUri = uri;
-                    // if application returned Uri for streaming, let's us it. Does it works?
-                    // FIXME both Uris works with Google Drive app. Why both? What's the difference? How about other apps like DropBox?
-                    final Bundle extras = data.getExtras();
-                    if (extras != null && extras.containsKey(Intent.EXTRA_STREAM))
-                        mFileStreamUri = extras.getParcelable(Intent.EXTRA_STREAM);
-
-                    // file name and size must be obtained from Content Provider
-                    final Bundle bundle = new Bundle();
-                    bundle.putParcelable(EXTRA_URI, uri);
-                    getLoaderManager().restartLoader(SELECT_FILE_REQ, bundle, new android.app.LoaderManager.LoaderCallbacks<Cursor>() {
-                        @Override
-                        public android.content.Loader<Cursor> onCreateLoader(int i, Bundle bundle) {
-                            final Uri uri = bundle.getParcelable(EXTRA_URI);
-                            /*
-                             * Some apps, f.e. Google Drive allow to select file that is not on the device. There is no "_data" column handled by that provider. Let's try to obtain
-                             * all columns and than check which columns are present.
-                             */
-                            // final String[] projection = new String[] { MediaStore.MediaColumns.DISPLAY_NAME, MediaStore.MediaColumns.SIZE, MediaStore.MediaColumns.DATA };
-                            return new CursorLoader(thisActivity,uri,null,null,null,null);
-                        }
-
-                        @Override
-                        public void onLoadFinished(android.content.Loader<Cursor> loader, Cursor cursor) {
-                            if (cursor != null && cursor.moveToNext()) {
-                                /*
-                                 * Here we have to check the column indexes by name as we have requested for all. The order may be different.
-                                 */
-                                final String fileName = cursor.getString(cursor.getColumnIndex(MediaStore.MediaColumns.DISPLAY_NAME)/* 0 DISPLAY_NAME */);
-                                final int fileSize = cursor.getInt(cursor.getColumnIndex(MediaStore.MediaColumns.SIZE) /* 1 SIZE */);
-                                String filePath = null;
-                                final int dataIndex = cursor.getColumnIndex(MediaStore.MediaColumns.DATA);
-                                if (dataIndex != -1)
-                                    filePath = cursor.getString(dataIndex /* 2 DATA */);
-                                if (!TextUtils.isEmpty(filePath))
-                                    mFilePath = filePath;
-
-                                updateFileInfo(fileName, fileSize, mFileType);
-                            } else {
-                                file_name.setText(null);
-                                file_type.setText(null);
-                                file_size.setText(null);
-                                mFilePath = null;
-                                mFileStreamUri = null;
-                                file_status.setText(R.string.dfu_file_status_error);
-                                mStatusOk = false;
-                            }
-
-                        }
-
-                        @Override
-                        public void onLoaderReset(android.content.Loader<Cursor> loader) {
-                            file_name.setText(null);
-                            file_type.setText(null);
-                            file_size.setText(null);
-                            mFilePath = null;
-                            mFileStreamUri = null;
-                            mStatusOk = false;
-                        }
-                    });
-                }
-                break;
-            }
-            case SELECT_INIT_FILE_REQ: {
-                mInitFilePath = null;
-                mInitFileStreamUri = null;
-
-                // and read new one
-                final Uri uri = data.getData();
-                /*
-                 * The URI returned from application may be in 'file' or 'content' schema. 'File' schema allows us to create a File object and read details from if
-                 * directly. Data from 'Content' schema must be read by Content Provider. To do that we are using a Loader.
-                 */
-                if (uri.getScheme().equals("file")) {
-                    // the direct path to the file has been returned
-                    mInitFilePath = uri.getPath();
-                    file_status.setText(R.string.dfu_file_status_ok_with_init);
-                } else if (uri.getScheme().equals("content")) {
-                    // an Uri has been returned
-                    mInitFileStreamUri = uri;
-                    // if application returned Uri for streaming, let's us it. Does it works?
-                    // FIXME both Uris works with Google Drive app. Why both? What's the difference? How about other apps like DropBox?
-                    final Bundle extras = data.getExtras();
-                    if (extras != null && extras.containsKey(Intent.EXTRA_STREAM))
-                        mInitFileStreamUri = extras.getParcelable(Intent.EXTRA_STREAM);
-                    file_status.setText(R.string.dfu_file_status_ok_with_init);
-                }
-                break;
-            }
-            default:
-                break;
-        }
+    private void fileDownload() {
+        new DownloadFile().execute("https://drive.google.com/open?id=1braEhVPpJwMd-VWty3PUSYmpCgfIlR-N", "app_dfu_package5.zip");
     }
 
     private void updateFileInfo(final String fileName, final long fileSize, final int fileType) {
@@ -523,5 +395,47 @@ public class DFUActivity extends AppCompatActivity {
         super.onDestroy();
         DfuServiceListenerHelper.unregisterProgressListener(this, mDfuProgressListener);
     }
+
+    private class DownloadFile extends AsyncTask<String, Void, Void> {
+
+        @Override
+        protected Void doInBackground(String... strings) {
+            String fileUrl = strings[0];
+            String fileName = strings[1];
+            boolean isFolderCreated = true;
+            String extStorageDirectory = Environment.getExternalStorageDirectory().toString();
+            File folder = new File(extStorageDirectory, "hardwarecode");
+            if(!folder.exists()){
+                isFolderCreated = folder.mkdirs();
+            }
+
+            if(isFolderCreated){
+                File codeFile = new File(folder, fileName);
+                if(codeFile.exists()){
+                    codeFile.delete();
+                }
+                try {
+                    codeFile.createNewFile();
+                    if (FileDownloader.downloadFile(fileUrl, codeFile)) {
+                        readFile();
+                    }
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+
+
+            }
+
+            return null;
+        }
+    }
+
+    private void readFile(){
+        File codeFile = new File(Environment.getExternalStorageDirectory() + "/hardwarecode/" + "app_dfu_package5.zip");
+        thisActivity.runOnUiThread(()->{
+            updateFileInfo(codeFile.getName(),codeFile.length(),DFUService.TYPE_AUTO);
+        });
+    }
+
 
 }
